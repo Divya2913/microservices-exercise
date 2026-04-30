@@ -3,6 +3,7 @@ package com.example.cart_service.controller;
 import com.example.cart_service.entity.Cart;
 import com.example.cart_service.entity.CartItem;
 import com.example.cart_service.service.CartService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,7 +26,7 @@ public class CartController {
 
     // ADD ITEM
     @PostMapping("/item")
-    public CartItem addItem(@RequestBody CartItem item) {
+    public CartItem addItem(@Valid @RequestBody CartItem item) {
         return cartService.addItemToCart(item);
     }
 

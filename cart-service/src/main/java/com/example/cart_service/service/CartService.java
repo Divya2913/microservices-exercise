@@ -12,6 +12,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class CartService {
@@ -49,31 +51,33 @@ public class CartService {
     public List<CartItem> getAllItems() {
         return cartItemRepository.findAll();
     }
+    private static final Logger log =
+            LoggerFactory.getLogger(CartService.class);
 
     // ADD ITEM TO CART WITH ASYNC PRODUCT FETCH + VALIDATION + KAFKA
     public CartItem addItemToCart(CartItem item) {
 
-        // Async call to Product Service
+        log.info("Adding item to cart: {}", item);
+
         CompletableFuture<ProductDto> future =
                 productAsyncService.getProduct(item.getProductId());
 
-        // Wait for result when needed
         ProductDto product = future.join();
 
-        // Validate product exists
+        log.info("Product fetched successfully: {}", product);
+
         if (product == null) {
             throw new RuntimeException("Product not found");
         }
 
-        // Validate stock
         if (product.getStock() < item.getQuantity()) {
             throw new RuntimeException("Insufficient stock");
         }
 
-        // Save cart item
         CartItem savedItem = cartItemRepository.save(item);
 
-        // Publish Kafka event
+        log.info("Cart item saved successfully");
+
         try {
             cartProducer.sendEvent(
                     new CartEvent(
@@ -82,8 +86,12 @@ public class CartService {
                             item.getQuantity()
                     )
             );
+
+            log.info("Kafka event sent successfully");
+
         } catch (Exception e) {
-            e.printStackTrace();
+
+            log.error("Kafka publish failed", e);
         }
 
         return savedItem;
