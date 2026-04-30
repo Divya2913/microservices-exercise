@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class CartService {
@@ -18,17 +19,20 @@ public class CartService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final WebClient webClient;
-    private final CartProducer cartProducer;   // ✅ ADD HERE
+    private final CartProducer cartProducer;
+    private final ProductAsyncService productAsyncService;
 
     public CartService(CartRepository cartRepository,
                        CartItemRepository cartItemRepository,
                        WebClient webClient,
-                       CartProducer cartProducer) {   // ✅ ADD HERE
+                       CartProducer cartProducer,
+                       ProductAsyncService productAsyncService) {
 
         this.cartRepository = cartRepository;
         this.cartItemRepository = cartItemRepository;
         this.webClient = webClient;
-        this.cartProducer = cartProducer;      // ✅ ADD HERE
+        this.cartProducer = cartProducer;
+        this.productAsyncService = productAsyncService;
     }
 
     // CREATE CART
@@ -46,27 +50,30 @@ public class CartService {
         return cartItemRepository.findAll();
     }
 
-    // ADD ITEM TO CART WITH PRODUCT VALIDATION + KAFKA
+    // ADD ITEM TO CART WITH ASYNC PRODUCT FETCH + VALIDATION + KAFKA
     public CartItem addItemToCart(CartItem item) {
 
-        ProductDto product = webClient.get()
-                .uri("http://localhost:8081/products/" + item.getProductId())
-                .retrieve()
-                .bodyToMono(ProductDto.class)
-                .block();
+        // Async call to Product Service
+        CompletableFuture<ProductDto> future =
+                productAsyncService.getProduct(item.getProductId());
 
+        // Wait for result when needed
+        ProductDto product = future.join();
+
+        // Validate product exists
         if (product == null) {
             throw new RuntimeException("Product not found");
         }
 
+        // Validate stock
         if (product.getStock() < item.getQuantity()) {
             throw new RuntimeException("Insufficient stock");
         }
 
-        // Save item first
+        // Save cart item
         CartItem savedItem = cartItemRepository.save(item);
 
-        // ✅ Send Kafka Event
+        // Publish Kafka event
         try {
             cartProducer.sendEvent(
                     new CartEvent(
@@ -75,11 +82,9 @@ public class CartService {
                             item.getQuantity()
                     )
             );
-        }
-        catch(Exception e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
-
 
         return savedItem;
     }
